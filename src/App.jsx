@@ -8,11 +8,7 @@ fontLink.href = "https://fonts.googleapis.com/css2?family=Montserrat:wght@700&di
 fontLink.rel = "stylesheet";
 document.head.appendChild(fontLink);
 
-const systemPrompt = `You are a severe weather research assistant specializing in hail and storm data. When given an address, you will:
-1. Search NOAA's Storm Events Database (https://www.ncdc.noaa.gov/stormevents/) for hail events in the past 5 years for that location's county and state.
-2. Search for any significant tornado, severe thunderstorm, or wind events in the same area.
-3. Search for hail size records, frequency, and seasonal patterns.
-4. Look for insurance or property damage context if available.
+const systemPrompt = `You are a severe weather research assistant specializing in hail and storm data. When given an address, perform ONE focused web search for NOAA Storm Events Database records for that location's county/state covering the past 5 years, then immediately return the JSON. Do not perform multiple searches — gather everything needed in a single search query and synthesize the result.
 
 Return ONLY valid JSON (no markdown, no backticks, no preamble) with this exact structure:
 {
@@ -124,8 +120,8 @@ export default function HailLookup() {
       ];
 
       let data;
-      // Agentic loop — keep going until end_turn or max 5 rounds
-      for (let round = 0; round < 5; round++) {
+      // Max 2 rounds: 1 search + 1 synthesis (keeps within Vercel free tier 60s limit)
+      for (let round = 0; round < 2; round++) {
         data = await callAPI(messages);
 
         if (data.stop_reason === "end_turn") break;
