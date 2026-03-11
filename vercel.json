@@ -1,4 +1,7 @@
 {
+  "functions": {
+    "api/anthropic.js": { "maxDuration": 60 }
+  },
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/$1" },
     { "source": "/((?!sw\\.js|workbox-.*\\.js|manifest\\.webmanifest|icon.*\\.png|apple-touch-icon\\.png|favicon\\.ico|assets/).*)", "destination": "/index.html" }

@@ -124,8 +124,8 @@ export default function HailLookup() {
       ];
 
       let data;
-      // Agentic loop — keep going until end_turn or max 10 rounds
-      for (let round = 0; round < 10; round++) {
+      // Agentic loop — keep going until end_turn or max 5 rounds
+      for (let round = 0; round < 5; round++) {
         data = await callAPI(messages);
 
         if (data.stop_reason === "end_turn") break;
