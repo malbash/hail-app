@@ -62,6 +62,11 @@ export default function HailLookup() {
   const [rawLog, setRawLog] = useState(null);
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 640);
 
+  // iOS PWA install banner
+  const isIos = () => /iphone|ipad|ipod/i.test(navigator.userAgent);
+  const isInStandaloneMode = () => window.navigator.standalone === true;
+  const [showIosBanner, setShowIosBanner] = useState(() => isIos() && !isInStandaloneMode());
+
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth < 640);
     window.addEventListener("resize", onResize);
@@ -83,7 +88,7 @@ export default function HailLookup() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
+        model: "claude-sonnet-4-6",
         max_tokens: 4000,
         system: systemPrompt,
         tools: [{ type: "web_search_20250305", name: "web_search" }],
@@ -441,6 +446,76 @@ export default function HailLookup() {
           </div>
         )}
       </div>
+
+      {/* iOS PWA Install Banner */}
+      {showIosBanner && (
+        <div style={{
+          position: "fixed",
+          bottom: 0,
+          left: 0,
+          right: 0,
+          background: "#0d1117",
+          borderTop: "1px solid #1e3a5f",
+          padding: "16px 20px 28px",
+          zIndex: 1000,
+          boxShadow: "0 -4px 24px rgba(0,0,0,0.6)"
+        }}>
+          <div style={{ maxWidth: 500, margin: "0 auto", position: "relative" }}>
+            <button
+              onClick={() => setShowIosBanner(false)}
+              style={{
+                position: "absolute",
+                top: 0,
+                right: 0,
+                background: "none",
+                border: "none",
+                color: "#4a6a8a",
+                fontSize: 20,
+                cursor: "pointer",
+                lineHeight: 1,
+                padding: "0 4px"
+              }}
+            >
+              ×
+            </button>
+            <div style={{ fontSize: 10, color: "#4a6a8a", letterSpacing: "0.2em", marginBottom: 10 }}>
+              INSTALL THIS APP
+            </div>
+            <div style={{ color: "#93c5fd", fontSize: 13, marginBottom: 12, lineHeight: 1.5 }}>
+              Add to your home screen for quick access:
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {[
+                { step: "1", text: 'Tap the Share button', icon: "⎋", note: "(the box with an arrow at the bottom of Safari)" },
+                { step: "2", text: 'Scroll down and tap "Add to Home Screen"', icon: "＋", note: "" },
+                { step: "3", text: 'Tap "Add" to confirm', icon: "✓", note: "" },
+              ].map(({ step, text, note }) => (
+                <div key={step} style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+                  <div style={{
+                    minWidth: 22,
+                    height: 22,
+                    background: "#1e3a5f",
+                    borderRadius: "50%",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: 11,
+                    color: "#60a5fa",
+                    fontWeight: 700,
+                    marginTop: 1
+                  }}>
+                    {step}
+                  </div>
+                  <div>
+                    <span style={{ color: "#cbd5e1", fontSize: 13 }}>{text}</span>
+                    {note && <div style={{ color: "#4a6a8a", fontSize: 11, marginTop: 2 }}>{note}</div>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
