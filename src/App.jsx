@@ -28,6 +28,22 @@ const theme = {
   white: "#ffffff",
 };
 
+const HAIL_COLUMNS = [
+  { key: "date", label: "Date", width: "0.85fr" },
+  { key: "size", label: "Size", width: "2.9fr" },
+  { key: "location", label: "Location", width: "1.95fr" },
+  { key: "damage", label: "Property Dmg", width: "1fr" },
+  { key: "inj", label: "Injuries", width: "0.7fr" },
+  { key: "dea", label: "Deaths", width: "0.7fr" },
+];
+
+const OTHER_COLUMNS = [
+  { key: "date", label: "Date", width: "0.9fr" },
+  { key: "type", label: "Type", width: "1.85fr" },
+  { key: "desc", label: "Description", width: "4.8fr" },
+  { key: "damage", label: "Damage", width: "1.65fr" },
+];
+
 const systemPrompt = `You are a severe weather research assistant specializing in hail and storm data.
 When given an address, search reliable weather/storm sources and return ONLY valid JSON with this exact structure:
 
@@ -95,11 +111,11 @@ const emptyRowStyle = {
   fontSize: 13,
 };
 
-const FIRST_PAGE_TOTAL_CAPACITY = 980;
-const CONTINUATION_PAGE_CAPACITY = 1000;
-const FOOTER_RESERVE = 180;
+const FIRST_PAGE_CONTENT_HEIGHT = PAGE_H - 92 - 18 - 18;
+const CONT_PAGE_CONTENT_HEIGHT = PAGE_H - 20 - 18;
 const SECTION_GAP = 18;
-const TABLE_BASE_HEIGHT = 76;
+const EMPTY_TABLE_BODY_HEIGHT = 62;
+const FOOTER_EXTRA_GAP = 20;
 
 function ensureFonts() {
   if (!document.getElementById("swi-fonts")) {
@@ -199,72 +215,25 @@ function getRiskStyle(risk) {
   }
 }
 
-function estimateLines(value, charsPerLine) {
-  const text = String(value || "").trim();
-  if (!text) return 1;
-  return Math.max(1, Math.ceil(text.length / charsPerLine));
+function getHeight(node) {
+  return node?.offsetHeight || 0;
 }
 
-function estimateSummaryPanelHeight(summary) {
-  const lines = estimateLines(summary, 92);
-  return 86 + Math.max(0, lines - 2) * 24;
-}
-
-function estimateIntroHeight(data) {
-  const addressBand = 112;
-  const summaryCards = 126;
-  const weatherSummary = estimateSummaryPanelHeight(data.summary);
-  const stats = 104;
-  return addressBand + summaryCards + weatherSummary + stats + 3 * SECTION_GAP;
-}
-
-function estimateHailRowHeight(row) {
-  const lines = Math.max(
-    estimateLines(formatDate(row?.date), 10),
-    estimateLines(row?.size, 28),
-    estimateLines(row?.location, 25),
-    estimateLines(row?.propertyDamage, 12)
-  );
-  return 40 + lines * 18;
-}
-
-function estimateOtherRowHeight(row) {
-  const lines = Math.max(
-    estimateLines(formatDate(row?.date), 10),
-    estimateLines(row?.type, 22),
-    estimateLines(row?.description, 56),
-    estimateLines(row?.damage, 12)
-  );
-  return 42 + lines * 18;
-}
-
-function estimateSourcesBlockHeight(sources = []) {
-  const base = 74;
-  const rows = sources.reduce((sum, s) => {
-    const lines = estimateLines(s, 80);
-    return sum + 12 + lines * 16;
-  }, 0);
-  return base + rows + 16;
-}
-
-function buildFlowPages(data) {
-  if (!data) return [];
+function buildMeasuredPages(data, metrics) {
+  if (!data || !metrics) return [];
 
   const pages = [];
-  const hailRows = [...data.hailEvents];
-  const otherRows = [...data.otherEvents];
-  const sources = [...data.sources];
 
   function createPage({ showTopHeader = false, showIntro = false } = {}) {
-    const remaining =
-      (showIntro ? FIRST_PAGE_TOTAL_CAPACITY - estimateIntroHeight(data) : CONTINUATION_PAGE_CAPACITY);
+    const capacity = showTopHeader ? FIRST_PAGE_CONTENT_HEIGHT : CONT_PAGE_CONTENT_HEIGHT;
+    const introHeight = showIntro ? metrics.introHeight : 0;
 
     return {
       showTopHeader,
       showIntro,
       sections: [],
       showFooter: false,
-      remaining,
+      remaining: capacity - introHeight,
     };
   }
 
@@ -278,35 +247,52 @@ function buildFlowPages(data) {
 
   function ensureRoom(requiredHeight) {
     if (currentPage.remaining >= requiredHeight) return;
-
     currentPage = pushNewPage({ showTopHeader: false, showIntro: false });
   }
 
-  function addTableSections(type, rows, firstTitle, continuationTitle, rowEstimator) {
-    let firstChunk = true;
+  function addMeasuredTableSections(type, rows, baseHeight, rowHeights, firstTitle, continuedTitle) {
+    if (!rows.length) {
+      const required = baseHeight + EMPTY_TABLE_BODY_HEIGHT + SECTION_GAP;
+      ensureRoom(required);
 
-    while (rows.length > 0) {
-      const title = firstChunk ? firstTitle : continuationTitle;
-      const nextRowHeight = rowEstimator(rows[0]);
+      currentPage.sections.push({
+        type,
+        title: firstTitle,
+        rows: [],
+      });
 
-      ensureRoom(TABLE_BASE_HEIGHT + nextRowHeight);
+      currentPage.remaining -= required;
+      return;
+    }
 
-      let used = TABLE_BASE_HEIGHT;
+    let rowIndex = 0;
+    let firstSection = true;
+
+    while (rowIndex < rows.length) {
+      const title = firstSection ? firstTitle : continuedTitle;
+      const firstRowHeight = rowHeights[rowIndex] || 60;
+
+      ensureRoom(baseHeight + firstRowHeight + SECTION_GAP);
+
+      let used = baseHeight;
       const chunk = [];
 
-      while (rows.length > 0) {
-        const rowHeight = rowEstimator(rows[0]);
-        if (chunk.length > 0 && used + rowHeight > currentPage.remaining) break;
+      while (rowIndex < rows.length) {
+        const rowHeight = rowHeights[rowIndex] || 60;
 
-        chunk.push(rows.shift());
+        if (chunk.length > 0 && used + rowHeight > currentPage.remaining) {
+          break;
+        }
+
+        chunk.push(rows[rowIndex]);
         used += rowHeight;
-
-        if (used > currentPage.remaining) break;
+        rowIndex += 1;
       }
 
-      if (chunk.length === 0) {
-        chunk.push(rows.shift());
-        used += rowEstimator(chunk[0]);
+      if (!chunk.length) {
+        chunk.push(rows[rowIndex]);
+        used += rowHeights[rowIndex] || 60;
+        rowIndex += 1;
       }
 
       currentPage.sections.push({
@@ -315,37 +301,47 @@ function buildFlowPages(data) {
         rows: chunk,
       });
 
-      currentPage.remaining -= Math.max(used + SECTION_GAP, 0);
-      firstChunk = false;
+      currentPage.remaining -= used + SECTION_GAP;
+      firstSection = false;
     }
   }
 
-  addTableSections(
+  addMeasuredTableSections(
     "hail",
-    hailRows,
+    data.hailEvents,
+    metrics.hailBaseHeight,
+    metrics.hailRowHeights,
     "Hail Events - Past 5 Years",
-    "Hail Events - Continued",
-    estimateHailRowHeight
+    "Hail Events - Continued"
   );
 
-  addTableSections(
+  addMeasuredTableSections(
     "other",
-    otherRows,
+    data.otherEvents,
+    metrics.otherBaseHeight,
+    metrics.otherRowHeights,
     "Other Severe Weather Events",
-    "Other Severe Weather Events - Continued",
-    estimateOtherRowHeight
+    "Other Severe Weather Events - Continued"
   );
 
-  const sourcesHeight = estimateSourcesBlockHeight(sources);
-  if (currentPage.remaining < sourcesHeight + FOOTER_RESERVE) {
+  const sourcesBodyHeight =
+    data.sources.length > 0
+      ? metrics.sourceRowHeights.reduce((sum, h) => sum + h, 0)
+      : EMPTY_TABLE_BODY_HEIGHT;
+
+  const sourcesHeight = metrics.sourcesBaseHeight + sourcesBodyHeight + SECTION_GAP;
+  const footerReserve = metrics.footerHeight + FOOTER_EXTRA_GAP;
+
+  if (currentPage.remaining < sourcesHeight + footerReserve) {
     currentPage = pushNewPage({ showTopHeader: false, showIntro: false });
   }
 
   currentPage.sections.push({
     type: "sources",
     title: "Data Sources",
-    sources,
+    sources: data.sources,
   });
+  currentPage.remaining -= sourcesHeight;
   currentPage.showFooter = true;
 
   return pages;
@@ -364,6 +360,48 @@ function LogoMark({ large = false }) {
         display: "block",
       }}
     />
+  );
+}
+
+function FooterContent() {
+  return (
+    <>
+      <div style={{ display: "flex", justifyContent: "center", marginBottom: 10 }}>
+        <LogoMark large />
+      </div>
+      <div
+        style={{
+          color: theme.white,
+          fontSize: 14,
+        }}
+      >
+        ©2026 Trinity Engineering, PLLC All Rights Reserved
+      </div>
+    </>
+  );
+}
+
+function TrinityFooter() {
+  return (
+    <div
+      style={{
+        position: "absolute",
+        left: 0,
+        right: 0,
+        bottom: 34,
+        textAlign: "center",
+      }}
+    >
+      <FooterContent />
+    </div>
+  );
+}
+
+function FooterMeasure() {
+  return (
+    <div style={{ textAlign: "center" }}>
+      <FooterContent />
+    </div>
   );
 }
 
@@ -601,7 +639,7 @@ function Panel({ children, style = {} }) {
 
 function SearchPanel({ address, setAddress, onLookup, loading }) {
   return (
-    <Panel style={{ marginBottom: 18 }}>
+    <Panel style={{ marginBottom: SECTION_GAP }}>
       <SectionLabel>Property Address Lookup</SectionLabel>
 
       <div
@@ -916,6 +954,17 @@ function StatsGrid({ stats }) {
   );
 }
 
+function ReportIntro({ data, address }) {
+  return (
+    <>
+      <AddressLookupBand address={address} />
+      <SummaryCards data={data} />
+      <WeatherSummary text={data.summary} />
+      <StatsGrid stats={data.stats} />
+    </>
+  );
+}
+
 function TableShell({ title, children, style = {} }) {
   return (
     <div
@@ -968,19 +1017,10 @@ function TableHeader({ columns }) {
   );
 }
 
-function HailEventsTable({ rows, title = "Hail Events - Past 5 Years" }) {
-  const cols = [
-    { key: "date", label: "Date", width: "0.85fr" },
-    { key: "size", label: "Size", width: "2.9fr" },
-    { key: "location", label: "Location", width: "1.95fr" },
-    { key: "damage", label: "Property Dmg", width: "1fr" },
-    { key: "inj", label: "Injuries", width: "0.7fr" },
-    { key: "dea", label: "Deaths", width: "0.7fr" },
-  ];
-
+function HailEventsTable({ rows, title = "Hail Events - Past 5 Years", style = {} }) {
   return (
-    <TableShell title={title}>
-      <TableHeader columns={cols} />
+    <TableShell title={title} style={style}>
+      <TableHeader columns={HAIL_COLUMNS} />
 
       {rows.length === 0 ? (
         <div style={emptyRowStyle}>No hail events returned.</div>
@@ -990,7 +1030,7 @@ function HailEventsTable({ rows, title = "Hail Events - Past 5 Years" }) {
             key={`${row.date}-${idx}`}
             style={{
               display: "grid",
-              gridTemplateColumns: cols.map((c) => c.width).join(" "),
+              gridTemplateColumns: HAIL_COLUMNS.map((c) => c.width).join(" "),
               padding: "13px 18px",
               borderBottom: idx === rows.length - 1 ? "none" : `1px solid ${theme.borderSoft}`,
               fontSize: 13,
@@ -1014,17 +1054,10 @@ function HailEventsTable({ rows, title = "Hail Events - Past 5 Years" }) {
   );
 }
 
-function OtherEventsTable({ rows, title = "Other Severe Weather Events" }) {
-  const cols = [
-    { key: "date", label: "Date", width: "0.9fr" },
-    { key: "type", label: "Type", width: "1.85fr" },
-    { key: "desc", label: "Description", width: "4.8fr" },
-    { key: "damage", label: "Damage", width: "1.65fr" },
-  ];
-
+function OtherEventsTable({ rows, title = "Other Severe Weather Events", style = {} }) {
   return (
-    <TableShell title={title}>
-      <TableHeader columns={cols} />
+    <TableShell title={title} style={style}>
+      <TableHeader columns={OTHER_COLUMNS} />
 
       {rows.length === 0 ? (
         <div style={emptyRowStyle}>No additional severe weather events returned.</div>
@@ -1034,7 +1067,7 @@ function OtherEventsTable({ rows, title = "Other Severe Weather Events" }) {
             key={`${row.date}-${idx}`}
             style={{
               display: "grid",
-              gridTemplateColumns: cols.map((c) => c.width).join(" "),
+              gridTemplateColumns: OTHER_COLUMNS.map((c) => c.width).join(" "),
               padding: "13px 18px",
               borderBottom: idx === rows.length - 1 ? "none" : `1px solid ${theme.borderSoft}`,
               fontSize: 13,
@@ -1056,9 +1089,9 @@ function OtherEventsTable({ rows, title = "Other Severe Weather Events" }) {
   );
 }
 
-function SourcesBlock({ sources }) {
+function SourcesBlock({ sources, style = {} }) {
   return (
-    <TableShell title="Data Sources">
+    <TableShell title="Data Sources" style={style}>
       <div style={{ padding: "14px 18px 12px 18px" }}>
         {sources.length === 0 ? (
           <div style={emptyRowStyle}>No source links returned.</div>
@@ -1081,43 +1114,6 @@ function SourcesBlock({ sources }) {
         )}
       </div>
     </TableShell>
-  );
-}
-
-function TrinityFooter() {
-  return (
-    <div
-      style={{
-        position: "absolute",
-        left: 0,
-        right: 0,
-        bottom: 34,
-        textAlign: "center",
-      }}
-    >
-      <div style={{ display: "flex", justifyContent: "center", marginBottom: 10 }}>
-        <LogoMark large />
-      </div>
-      <div
-        style={{
-          color: theme.white,
-          fontSize: 14,
-        }}
-      >
-        ©2026 Trinity Engineering, PLLC All Rights Reserved
-      </div>
-    </div>
-  );
-}
-
-function ReportIntro({ data, address }) {
-  return (
-    <>
-      <AddressLookupBand address={address} />
-      <SummaryCards data={data} />
-      <WeatherSummary text={data.summary} />
-      <StatsGrid stats={data.stats} />
-    </>
   );
 }
 
@@ -1148,7 +1144,12 @@ function ReportPage({ page, data, address }) {
         }
 
         if (section.type === "sources") {
-          return <SourcesBlock key={`${section.type}-${idx}`} sources={section.sources} />;
+          return (
+            <SourcesBlock
+              key={`${section.type}-${idx}`}
+              sources={section.sources}
+            />
+          );
         }
 
         return null;
@@ -1212,7 +1213,20 @@ export default function App() {
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState("");
 
+  const [pages, setPages] = useState([]);
+  const [layoutReady, setLayoutReady] = useState(false);
+
   const pageRefs = useRef([]);
+
+  const introMeasureRef = useRef(null);
+  const hailBaseMeasureRef = useRef(null);
+  const otherBaseMeasureRef = useRef(null);
+  const sourcesBaseMeasureRef = useRef(null);
+  const footerMeasureRef = useRef(null);
+
+  const hailRowMeasureRefs = useRef([]);
+  const otherRowMeasureRefs = useRef([]);
+  const sourceRowMeasureRefs = useRef([]);
 
   useEffect(() => {
     ensureFonts();
@@ -1235,7 +1249,55 @@ export default function App() {
   }, []);
 
   const normalized = useMemo(() => normalizeResult(result, address), [result, address]);
-  const pages = useMemo(() => buildFlowPages(normalized), [normalized]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function measureLayout() {
+      if (!normalized) {
+        if (!cancelled) {
+          setPages([]);
+          setLayoutReady(true);
+        }
+        return;
+      }
+
+      if (!cancelled) setLayoutReady(false);
+
+      await document.fonts.ready;
+
+      requestAnimationFrame(() => {
+        if (cancelled) return;
+
+        const metrics = {
+          introHeight: getHeight(introMeasureRef.current),
+          hailBaseHeight: getHeight(hailBaseMeasureRef.current),
+          otherBaseHeight: getHeight(otherBaseMeasureRef.current),
+          sourcesBaseHeight: getHeight(sourcesBaseMeasureRef.current),
+          footerHeight: getHeight(footerMeasureRef.current),
+          hailRowHeights: normalized.hailEvents.map((_, i) =>
+            getHeight(hailRowMeasureRefs.current[i])
+          ),
+          otherRowHeights: normalized.otherEvents.map((_, i) =>
+            getHeight(otherRowMeasureRefs.current[i])
+          ),
+          sourceRowHeights: normalized.sources.map((_, i) =>
+            getHeight(sourceRowMeasureRefs.current[i])
+          ),
+        };
+
+        const builtPages = buildMeasuredPages(normalized, metrics);
+        setPages(builtPages);
+        setLayoutReady(true);
+      });
+    }
+
+    measureLayout();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [normalized]);
 
   async function handleLogin() {
     setAuthLoading(true);
@@ -1387,7 +1449,7 @@ Return only valid JSON in the exact schema.`,
   }
 
   async function downloadPDF() {
-    if (!normalized || pages.length === 0) return;
+    if (!normalized || !layoutReady || pages.length === 0) return;
 
     setPdfLoading(true);
 
@@ -1510,6 +1572,13 @@ Return only valid JSON in the exact schema.`,
               Enter a property address and run the query. The report preview and PDF export will appear after results are returned.
             </div>
           </Panel>
+        ) : !layoutReady ? (
+          <Panel>
+            <SectionLabel>Layout</SectionLabel>
+            <div style={{ color: theme.muted, lineHeight: 1.8 }}>
+              Preparing the report layout...
+            </div>
+          </Panel>
         ) : (
           <>
             <div
@@ -1570,28 +1639,137 @@ Return only valid JSON in the exact schema.`,
         )}
       </div>
 
-      <div
-        style={{
-          position: "absolute",
-          left: -20000,
-          top: 0,
-          width: PAGE_W,
-          pointerEvents: "none",
-        }}
-      >
-        {normalized &&
-          pages.map((page, idx) => (
-            <div
-              key={`pdf-${idx}`}
-              ref={(el) => {
-                pageRefs.current[idx] = el;
-              }}
-              style={{ width: PAGE_W, height: PAGE_H, marginBottom: 20 }}
-            >
-              <ReportPage page={page} data={normalized} address={address} />
+      {normalized ? (
+        <>
+          <div
+            style={{
+              position: "absolute",
+              left: -30000,
+              top: 0,
+              width: PAGE_W,
+              pointerEvents: "none",
+              opacity: 0,
+            }}
+          >
+            <div ref={introMeasureRef} style={{ width: PAGE_W }}>
+              <ReportIntro data={normalized} address={address} />
             </div>
-          ))}
-      </div>
+
+            <div ref={hailBaseMeasureRef} style={{ width: PAGE_W }}>
+              <HailEventsTable rows={[]} title="Hail Events - Past 5 Years" style={{ marginBottom: 0 }} />
+            </div>
+
+            {normalized.hailEvents.map((row, i) => (
+              <div
+                key={`measure-hail-row-${i}`}
+                ref={(el) => {
+                  hailRowMeasureRefs.current[i] = el;
+                }}
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: HAIL_COLUMNS.map((c) => c.width).join(" "),
+                  padding: "13px 18px",
+                  fontSize: 13,
+                  lineHeight: 1.35,
+                  width: PAGE_W - 44,
+                }}
+              >
+                <div style={monoCellStyle}>{formatDate(row.date)}</div>
+                <div style={{ ...monoCellStyle, color: "#ffcb54", fontWeight: 700 }}>
+                  {row.size || "N/A"}
+                </div>
+                <div style={monoCellStyle}>{row.location || "N/A"}</div>
+                <div style={{ ...monoCellStyle, color: theme.dangerText }}>
+                  {row.propertyDamage || "N/A"}
+                </div>
+                <div style={{ ...monoCellStyle, textAlign: "center" }}>{row.injuries ?? 0}</div>
+                <div style={{ ...monoCellStyle, textAlign: "center" }}>{row.deaths ?? 0}</div>
+              </div>
+            ))}
+
+            <div ref={otherBaseMeasureRef} style={{ width: PAGE_W }}>
+              <OtherEventsTable rows={[]} title="Other Severe Weather Events" style={{ marginBottom: 0 }} />
+            </div>
+
+            {normalized.otherEvents.map((row, i) => (
+              <div
+                key={`measure-other-row-${i}`}
+                ref={(el) => {
+                  otherRowMeasureRefs.current[i] = el;
+                }}
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: OTHER_COLUMNS.map((c) => c.width).join(" "),
+                  padding: "13px 18px",
+                  fontSize: 13,
+                  lineHeight: 1.35,
+                  width: PAGE_W - 44,
+                }}
+              >
+                <div style={monoCellStyle}>{formatDate(row.date)}</div>
+                <div style={{ ...monoCellStyle, color: theme.purpleText, fontWeight: 700 }}>
+                  {row.type || "N/A"}
+                </div>
+                <div style={monoCellStyle}>{row.description || "N/A"}</div>
+                <div style={{ ...monoCellStyle, color: theme.dangerText }}>
+                  {row.damage || "N/A"}
+                </div>
+              </div>
+            ))}
+
+            <div ref={sourcesBaseMeasureRef} style={{ width: PAGE_W }}>
+              <SourcesBlock sources={[]} style={{ marginBottom: 0 }} />
+            </div>
+
+            {normalized.sources.map((s, i) => (
+              <div
+                key={`measure-source-row-${i}`}
+                ref={(el) => {
+                  sourceRowMeasureRefs.current[i] = el;
+                }}
+                style={{
+                  color: theme.blue,
+                  fontFamily: '"IBM Plex Mono", monospace',
+                  fontSize: 12,
+                  lineHeight: 1.7,
+                  marginBottom: 6,
+                  wordBreak: "break-all",
+                  width: PAGE_W - 44,
+                }}
+              >
+                ↗ {s}
+              </div>
+            ))}
+
+            <div ref={footerMeasureRef} style={{ width: PAGE_W }}>
+              <FooterMeasure />
+            </div>
+          </div>
+
+          <div
+            style={{
+              position: "absolute",
+              left: -20000,
+              top: 0,
+              width: PAGE_W,
+              pointerEvents: "none",
+            }}
+          >
+            {layoutReady &&
+              pages.map((page, idx) => (
+                <div
+                  key={`pdf-${idx}`}
+                  ref={(el) => {
+                    pageRefs.current[idx] = el;
+                  }}
+                  style={{ width: PAGE_W, height: PAGE_H, marginBottom: 20 }}
+                >
+                  <ReportPage page={page} data={normalized} address={address} />
+                </div>
+              ))}
+          </div>
+        </>
+      ) : null}
     </div>
   );
 }
