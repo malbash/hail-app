@@ -150,31 +150,19 @@ function getRiskStyle(risk) {
 }
 
 function LogoMark({ large = false }) {
-  const w = large ? 180 : 118;
-  const h = large ? 86 : 54;
-
   return (
-    <svg width={w} height={h} viewBox="0 0 180 86" aria-hidden="true">
-      <polygon points="10,5 172,43 10,81" fill="#3343B5" />
-      <rect x="10" y="5" width="50" height="18" fill="#1b245b" opacity="0.85" />
-      <text x="20" y="27" fill="#ffffff" fontSize="17" fontWeight="700" fontFamily="Inter, Arial, sans-serif">
-        TRINITY
-      </text>
-      <text
-        x="20"
-        y="45"
-        fill="#ffffff"
-        fontSize="9"
-        fontWeight="600"
-        letterSpacing="2.4"
-        fontFamily="Inter, Arial, sans-serif"
-      >
-        ENGINEERING
-      </text>
-    </svg>
+    <img
+      src="/trinity-logo.png"
+      alt="Trinity Engineering"
+      style={{
+        width: large ? 180 : 118,
+        height: large ? 86 : 54,
+        objectFit: "contain",
+        display: "block",
+      }}
+    />
   );
 }
-
 function AppHeader({ onLogout }) {
   return (
     <div
