@@ -357,9 +357,9 @@ function LogoMark({ large = false }) {
       src="/trinity-logo.png"
       alt="Trinity Engineering"
       style={{
-        width: large ? 180 : 118,
-        height: "auto",
-        maxHeight: large ? 86 : 54,
+        height: large ? 86 : 54,
+        width: "auto",
+        maxWidth: large ? 220 : 140,
         objectFit: "contain",
         display: "block",
       }}
