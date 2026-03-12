@@ -1173,9 +1173,9 @@ export default function App() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         model: "claude-sonnet-4-6",
-        max_tokens: 4000,
+        max_tokens: 1800,
         system: systemPrompt,
-        tools: [{ type: "web_search_20250305", name: "web_search" }],
+        tools: [{ type: "web_search_20260209", name: "web_search" }],
         messages,
       }),
     });
