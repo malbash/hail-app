@@ -1,32 +1,20 @@
-export default async function handler(req) {
+module.exports = async (req, res) => {
   if (req.method === "OPTIONS") {
-    return new Response(null, {
-      status: 204,
-      headers: {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "POST, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type",
-      },
-    });
+    res.status(204).end();
+    return;
   }
 
   if (req.method !== "POST") {
-    return new Response(
-      JSON.stringify({ success: false, error: "Method not allowed" }),
-      {
-        status: 405,
-        headers: { "Content-Type": "application/json" },
-      }
-    );
+    res.status(405).json({ success: false, error: "Method not allowed" });
+    return;
   }
 
   const isProd = process.env.NODE_ENV === "production";
 
-  return new Response(JSON.stringify({ success: true }), {
-    status: 200,
-    headers: {
-      "Content-Type": "application/json",
-      "Set-Cookie": `hail_auth=; Path=/; HttpOnly; ${isProd ? "Secure;" : ""} SameSite=Lax; Max-Age=0`,
-    },
-  });
-}
+  res.setHeader(
+    "Set-Cookie",
+    `hail_auth=; Path=/; HttpOnly; ${isProd ? "Secure;" : ""} SameSite=Lax; Max-Age=0`
+  );
+
+  res.status(200).json({ success: true });
+};
