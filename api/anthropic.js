@@ -1,6 +1,8 @@
-import crypto from "crypto";
+const crypto = require("crypto");
 
-export const config = { maxDuration: 60 };
+module.exports.config = {
+  maxDuration: 60,
+};
 
 function sign(value, secret) {
   return crypto.createHmac("sha256", secret).update(value).digest("hex");
@@ -45,64 +47,39 @@ function verifyToken(token, secret) {
   }
 }
 
-export default async function handler(req) {
+module.exports = async (req, res) => {
   if (req.method === "OPTIONS") {
-    return new Response(null, {
-      status: 204,
-      headers: {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "POST, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type",
-      },
-    });
+    res.status(204).end();
+    return;
   }
 
   if (req.method !== "POST") {
-    return new Response(JSON.stringify({ error: "Method not allowed" }), {
-      status: 405,
-      headers: { "Content-Type": "application/json" },
-    });
+    res.status(405).json({ error: "Method not allowed" });
+    return;
   }
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
   const sessionSecret = process.env.APP_SESSION_SECRET;
 
   if (!apiKey) {
-    return new Response(
-      JSON.stringify({ error: { message: "Missing ANTHROPIC_API_KEY." } }),
-      {
-        status: 500,
-        headers: { "Content-Type": "application/json" },
-      }
-    );
+    res.status(500).json({ error: { message: "Missing ANTHROPIC_API_KEY." } });
+    return;
   }
 
   if (!sessionSecret) {
-    return new Response(
-      JSON.stringify({ error: { message: "Missing APP_SESSION_SECRET." } }),
-      {
-        status: 500,
-        headers: { "Content-Type": "application/json" },
-      }
-    );
+    res.status(500).json({ error: { message: "Missing APP_SESSION_SECRET." } });
+    return;
   }
 
-  const cookies = parseCookies(req.headers.get("cookie") || "");
+  const cookies = parseCookies(req.headers.cookie || "");
   const token = cookies.hail_auth;
 
   if (!verifyToken(token, sessionSecret)) {
-    return new Response(
-      JSON.stringify({ error: { message: "Unauthorized." } }),
-      {
-        status: 401,
-        headers: { "Content-Type": "application/json" },
-      }
-    );
+    res.status(401).json({ error: { message: "Unauthorized." } });
+    return;
   }
 
   try {
-    const body = await req.json();
-
     const upstream = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
@@ -110,7 +87,7 @@ export default async function handler(req) {
         "x-api-key": apiKey,
         "anthropic-version": "2023-06-01",
       },
-      body: JSON.stringify(body),
+      body: JSON.stringify(req.body),
     });
 
     const text = await upstream.text();
@@ -119,32 +96,18 @@ export default async function handler(req) {
     try {
       data = JSON.parse(text);
     } catch {
-      return new Response(
-        JSON.stringify({
-          error: {
-            message: `Anthropic API returned unexpected response: ${text.slice(0, 200)}`,
-          },
-        }),
-        {
-          status: 502,
-          headers: { "Content-Type": "application/json" },
-        }
-      );
+      res.status(502).json({
+        error: {
+          message: `Anthropic API returned unexpected response: ${text.slice(0, 200)}`,
+        },
+      });
+      return;
     }
 
-    return new Response(JSON.stringify(data), {
-      status: upstream.status,
-      headers: { "Content-Type": "application/json" },
-    });
+    res.status(upstream.status).json(data);
   } catch (err) {
-    return new Response(
-      JSON.stringify({
-        error: { message: err.message || "Anthropic proxy failed." },
-      }),
-      {
-        status: 500,
-        headers: { "Content-Type": "application/json" },
-      }
-    );
+    res.status(500).json({
+      error: { message: err.message || "Anthropic proxy failed." },
+    });
   }
-}
+};
