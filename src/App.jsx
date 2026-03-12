@@ -39,7 +39,7 @@ When given an address, search reliable weather/storm sources and return ONLY val
     "lat": "...",
     "lon": "..."
   },
-  "summary": "2-4 sentence plain-English summary of hail/severe weather risk for this area",
+  "summary": "1-2 sentence plain-English summary of hail/severe weather risk for this area",
   "riskLevel": "Low" | "Moderate" | "High" | "Very High",
   "hailEvents": [
     {
@@ -100,10 +100,35 @@ async function parseResponseJson(response, label = "API") {
   return data;
 }
 
+function extractJsonPayload(data) {
+  const textBlocks = (data?.content || []).filter((b) => b.type === "text");
+  const raw = textBlocks
+    .map((b) => b.text)
+    .join("\n")
+    .replace(/```json|```/gi, "")
+    .trim();
+
+  if (!raw) return null;
+
+  const start = raw.indexOf("{");
+  const end = raw.lastIndexOf("}");
+
+  if (start === -1 || end === -1 || end <= start) {
+    return null;
+  }
+
+  const candidate = raw.slice(start, end + 1);
+
+  try {
+    return JSON.parse(candidate);
+  } catch {
+    return null;
+  }
+}
+
 function formatDate(dateStr) {
   if (!dateStr) return "N/A";
-  const s = String(dateStr).trim();
-  return s;
+  return String(dateStr).trim();
 }
 
 function normalizeResult(result, address) {
@@ -163,6 +188,7 @@ function LogoMark({ large = false }) {
     />
   );
 }
+
 function AppHeader({ onLogout }) {
   return (
     <div
@@ -664,7 +690,7 @@ function WeatherSummary({ text }) {
         style={{
           color: theme.text,
           fontSize: 14,
-          lineHeight: 1.92,
+          lineHeight: 1.9,
           whiteSpace: "pre-wrap",
         }}
       >
@@ -971,9 +997,9 @@ function buildPageModel(data) {
   if (!data) return [];
 
   const hailPage1Count = 3;
-  const hailContinuationCount = 7;
+  const hailContinuationCount = 6;
   const otherPage1Count = 1;
-  const otherContinuationCount = 4;
+  const otherContinuationCount = 3;
 
   const hailPage1 = data.hailEvents.slice(0, hailPage1Count);
   const hailOverflow = chunkArray(data.hailEvents.slice(hailPage1Count), hailContinuationCount);
@@ -1166,16 +1192,18 @@ export default function App() {
     setAddress("");
   }
 
-  async function callAnthropic(messages) {
+  async function callAnthropic(messages, useTools = true) {
     const res = await fetch("/api/anthropic", {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         model: "claude-sonnet-4-6",
-        max_tokens: 1800,
+        max_tokens: useTools ? 1800 : 2200,
         system: systemPrompt,
-        tools: [{ type: "web_search_20260209", name: "web_search" }],
+        ...(useTools
+          ? { tools: [{ type: "web_search_20250305", name: "web_search" }] }
+          : {}),
         messages,
       }),
     });
@@ -1222,7 +1250,7 @@ Return only valid JSON in the exact schema.`,
       let data = null;
 
       for (let i = 0; i < 5; i += 1) {
-        data = await callAnthropic(messages);
+        data = await callAnthropic(messages, true);
 
         if (data?.stop_reason === "tool_use") {
           messages = [...messages, { role: "assistant", content: data.content }];
@@ -1241,17 +1269,27 @@ Return only valid JSON in the exact schema.`,
         }
       }
 
-      const textBlocks = (data?.content || []).filter((b) => b.type === "text");
-      const combined = textBlocks.map((b) => b.text).join("\n").replace(/```json|```/g, "").trim();
+      let parsed = extractJsonPayload(data);
 
-      const start = combined.indexOf("{");
-      const end = combined.lastIndexOf("}");
+      if (!parsed && data) {
+        const repairMessages = [
+          ...messages,
+          { role: "assistant", content: data.content },
+          {
+            role: "user",
+            content:
+              "Return the exact same final answer again as valid JSON only. No markdown. No prose. No citations. Start with { and end with }.",
+          },
+        ];
 
-      if (start === -1 || end === -1) {
-        throw new Error("No JSON object found in model response.");
+        const repaired = await callAnthropic(repairMessages, false);
+        parsed = extractJsonPayload(repaired);
       }
 
-      const parsed = JSON.parse(combined.slice(start, end + 1));
+      if (!parsed) {
+        throw new Error("Claude returned a non-JSON answer. Please try again.");
+      }
+
       setResult(parsed);
     } catch (err) {
       setError(err.message || "Failed to retrieve weather data.");
