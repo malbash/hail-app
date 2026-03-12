@@ -3,7 +3,7 @@ import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
 
 const CURRENT_YEAR = new Date().getFullYear();
-const PAGE_W = 794;   // A4-ish at screen preview scale
+const PAGE_W = 794;
 const PAGE_H = 1123;
 
 const theme = {
@@ -11,7 +11,6 @@ const theme = {
   pageBg: "#03070f",
   headerBg: "#07101d",
   panel: "#050b14",
-  panelSoft: "#07101a",
   border: "#17325f",
   borderSoft: "#102240",
   text: "#eef3ff",
@@ -88,19 +87,29 @@ function ensureFonts() {
   }
 }
 
+async function parseResponseJson(response, label = "API") {
+  const text = await response.text();
+
+  let data = {};
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    throw new Error(`${label} returned invalid JSON: ${text.slice(0, 180)}`);
+  }
+
+  return data;
+}
+
 function formatDate(dateStr) {
   if (!dateStr) return "N/A";
   const s = String(dateStr).trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
   return s;
 }
 
 function normalizeResult(result, address) {
   if (!result) return null;
 
-  const years =
-    result?.stats?.yearsSearched ||
-    `${CURRENT_YEAR - 5}-${CURRENT_YEAR}`;
+  const years = result?.stats?.yearsSearched || `${CURRENT_YEAR - 5}-${CURRENT_YEAR}`;
 
   return {
     location: {
@@ -110,9 +119,7 @@ function normalizeResult(result, address) {
       lat: result?.location?.lat || "",
       lon: result?.location?.lon || "",
     },
-    summary:
-      result?.summary ||
-      "No summary was returned. Please rerun the query.",
+    summary: result?.summary || "No summary was returned. Please rerun the query.",
     riskLevel: result?.riskLevel || "Moderate",
     hailEvents: Array.isArray(result?.hailEvents) ? result.hailEvents : [],
     otherEvents: Array.isArray(result?.otherEvents) ? result.otherEvents : [],
@@ -130,35 +137,15 @@ function normalizeResult(result, address) {
 function getRiskStyle(risk) {
   switch (risk) {
     case "Low":
-      return {
-        bg: "#102713",
-        border: "#2f7a36",
-        text: "#8ef49c",
-      };
+      return { bg: "#102713", border: "#2f7a36", text: "#8ef49c" };
     case "Moderate":
-      return {
-        bg: "#433000",
-        border: "#b98700",
-        text: "#ffd25a",
-      };
+      return { bg: "#433000", border: "#b98700", text: "#ffd25a" };
     case "High":
-      return {
-        bg: theme.riskBg,
-        border: theme.riskBorder,
-        text: theme.riskText,
-      };
+      return { bg: theme.riskBg, border: theme.riskBorder, text: theme.riskText };
     case "Very High":
-      return {
-        bg: "#4a0f0f",
-        border: "#af3030",
-        text: "#ff8177",
-      };
+      return { bg: "#4a0f0f", border: "#af3030", text: "#ff8177" };
     default:
-      return {
-        bg: theme.riskBg,
-        border: theme.riskBorder,
-        text: theme.riskText,
-      };
+      return { bg: theme.riskBg, border: theme.riskBorder, text: theme.riskText };
   }
 }
 
@@ -173,7 +160,15 @@ function LogoMark({ large = false }) {
       <text x="20" y="27" fill="#ffffff" fontSize="17" fontWeight="700" fontFamily="Inter, Arial, sans-serif">
         TRINITY
       </text>
-      <text x="20" y="45" fill="#ffffff" fontSize="9" fontWeight="600" letterSpacing="2.4" fontFamily="Inter, Arial, sans-serif">
+      <text
+        x="20"
+        y="45"
+        fill="#ffffff"
+        fontSize="9"
+        fontWeight="600"
+        letterSpacing="2.4"
+        fontFamily="Inter, Arial, sans-serif"
+      >
         ENGINEERING
       </text>
     </svg>
@@ -333,6 +328,7 @@ function LoginScreen({ username, password, setUsername, setPassword, onLogin, lo
           placeholder="Username"
           style={loginInputStyle}
         />
+
         <input
           type="password"
           value={password}
@@ -790,6 +786,20 @@ function TableHeader({ columns }) {
   );
 }
 
+const monoCellStyle = {
+  fontFamily: '"IBM Plex Mono", monospace',
+  color: theme.text,
+  whiteSpace: "pre-wrap",
+  wordBreak: "break-word",
+};
+
+const emptyRowStyle = {
+  padding: "18px",
+  color: theme.muted,
+  fontFamily: '"IBM Plex Mono", monospace',
+  fontSize: 13,
+};
+
 function HailEventsTable({ rows, title = "Hail Events - Past 5 Years" }) {
   const cols = [
     { key: "date", label: "Date", width: "0.85fr" },
@@ -820,9 +830,13 @@ function HailEventsTable({ rows, title = "Hail Events - Past 5 Years" }) {
             }}
           >
             <div style={monoCellStyle}>{formatDate(row.date)}</div>
-            <div style={{ ...monoCellStyle, color: "#ffcb54", fontWeight: 700 }}>{row.size || "N/A"}</div>
+            <div style={{ ...monoCellStyle, color: "#ffcb54", fontWeight: 700 }}>
+              {row.size || "N/A"}
+            </div>
             <div style={monoCellStyle}>{row.location || "N/A"}</div>
-            <div style={{ ...monoCellStyle, color: theme.dangerText }}>{row.propertyDamage || "N/A"}</div>
+            <div style={{ ...monoCellStyle, color: theme.dangerText }}>
+              {row.propertyDamage || "N/A"}
+            </div>
             <div style={{ ...monoCellStyle, textAlign: "center" }}>{row.injuries ?? 0}</div>
             <div style={{ ...monoCellStyle, textAlign: "center" }}>{row.deaths ?? 0}</div>
           </div>
@@ -873,20 +887,6 @@ function OtherEventsTable({ rows, title = "Other Severe Weather Events" }) {
     </TableShell>
   );
 }
-
-const monoCellStyle = {
-  fontFamily: '"IBM Plex Mono", monospace',
-  color: theme.text,
-  whiteSpace: "pre-wrap",
-  wordBreak: "break-word",
-};
-
-const emptyRowStyle = {
-  padding: "18px",
-  color: theme.muted,
-  fontFamily: '"IBM Plex Mono", monospace',
-  fontSize: 13,
-};
 
 function SourcesBlock({ sources }) {
   return (
@@ -1024,9 +1024,7 @@ function buildPageModel(data) {
       });
     });
   } else {
-    pages.push({
-      kind: "sourcesOnly",
-    });
+    pages.push({ kind: "sourcesOnly" });
   }
 
   return pages;
@@ -1121,10 +1119,8 @@ export default function App() {
   useEffect(() => {
     const checkSession = async () => {
       try {
-        const res = await fetch("/api/session", {
-          credentials: "include",
-        });
-        const data = await res.json();
+        const res = await fetch("/api/session", { credentials: "include" });
+        const data = await parseResponseJson(res, "Session API");
         setAuthenticated(Boolean(data?.authenticated));
       } catch {
         setAuthenticated(false);
@@ -1151,7 +1147,7 @@ export default function App() {
         body: JSON.stringify({ username, password }),
       });
 
-      const data = await res.json();
+      const data = await parseResponseJson(res, "Login API");
 
       if (!res.ok || !data?.success) {
         throw new Error(data?.error || "Invalid credentials.");
@@ -1176,6 +1172,7 @@ export default function App() {
     } catch {
       // ignore
     }
+
     setAuthenticated(false);
     setResult(null);
     setAddress("");
@@ -1199,7 +1196,7 @@ export default function App() {
 
     let data;
     try {
-      data = JSON.parse(text);
+      data = text ? JSON.parse(text) : {};
     } catch {
       throw new Error(`Unexpected server response: ${text.slice(0, 160)}`);
     }
@@ -1316,9 +1313,7 @@ Return only valid JSON in the exact schema.`,
         .replace(/^-+|-+$/g, "")
         .toLowerCase();
 
-      const fileName = `trinity-swi-report-${countyName}-${new Date()
-        .toISOString()
-        .slice(0, 10)}.pdf`;
+      const fileName = `trinity-swi-report-${countyName}-${new Date().toISOString().slice(0, 10)}.pdf`;
 
       pdf.save(fileName);
     } catch (err) {
@@ -1398,8 +1393,7 @@ Return only valid JSON in the exact schema.`,
           <Panel>
             <SectionLabel>Status</SectionLabel>
             <div style={{ color: theme.muted, lineHeight: 1.8 }}>
-              Enter a property address and run the query. The report preview and PDF export
-              will appear after results are returned.
+              Enter a property address and run the query. The report preview and PDF export will appear after results are returned.
             </div>
           </Panel>
         ) : (
@@ -1462,7 +1456,6 @@ Return only valid JSON in the exact schema.`,
         )}
       </div>
 
-      {/* Hidden fixed pages for clean PDF rendering */}
       <div
         style={{
           position: "absolute",
