@@ -1,4 +1,4 @@
-import crypto from "crypto";
+const crypto = require("crypto");
 
 function sign(value, secret) {
   return crypto.createHmac("sha256", secret).update(value).digest("hex");
@@ -43,37 +43,23 @@ function verifyToken(token, secret) {
   }
 }
 
-export default async function handler(req) {
+module.exports = async (req, res) => {
   if (req.method === "OPTIONS") {
-    return new Response(null, {
-      status: 204,
-      headers: {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "GET, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type",
-      },
-    });
+    res.status(204).end();
+    return;
   }
 
   const secret = process.env.APP_SESSION_SECRET;
 
   if (!secret) {
-    return new Response(JSON.stringify({ authenticated: false }), {
-      status: 500,
-      headers: { "Content-Type": "application/json" },
-    });
+    res.status(500).json({ authenticated: false });
+    return;
   }
 
-  const cookies = parseCookies(req.headers.get("cookie") || "");
+  const cookies = parseCookies(req.headers.cookie || "");
   const token = cookies.hail_auth;
 
-  return new Response(
-    JSON.stringify({
-      authenticated: verifyToken(token, secret),
-    }),
-    {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    }
-  );
-}
+  res.status(200).json({
+    authenticated: verifyToken(token, secret),
+  });
+};
