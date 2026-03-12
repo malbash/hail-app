@@ -70,11 +70,36 @@ When given an address, search reliable weather/storm sources and return ONLY val
   "sources": ["url1", "url2"]
 }`;
 
-function chunkArray(arr, size) {
-  const out = [];
-  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
-  return out;
-}
+const loginInputStyle = {
+  width: "100%",
+  background: "#02060d",
+  color: theme.text,
+  border: `1px solid ${theme.border}`,
+  borderRadius: 10,
+  padding: "13px 14px",
+  fontSize: 14,
+  outline: "none",
+};
+
+const monoCellStyle = {
+  fontFamily: '"IBM Plex Mono", monospace',
+  color: theme.text,
+  whiteSpace: "pre-wrap",
+  wordBreak: "break-word",
+};
+
+const emptyRowStyle = {
+  padding: "18px",
+  color: theme.muted,
+  fontFamily: '"IBM Plex Mono", monospace',
+  fontSize: 13,
+};
+
+const FIRST_PAGE_TOTAL_CAPACITY = 980;
+const CONTINUATION_PAGE_CAPACITY = 1000;
+const FOOTER_RESERVE = 180;
+const SECTION_GAP = 18;
+const TABLE_BASE_HEIGHT = 76;
 
 function ensureFonts() {
   if (!document.getElementById("swi-fonts")) {
@@ -172,6 +197,158 @@ function getRiskStyle(risk) {
     default:
       return { bg: theme.riskBg, border: theme.riskBorder, text: theme.riskText };
   }
+}
+
+function estimateLines(value, charsPerLine) {
+  const text = String(value || "").trim();
+  if (!text) return 1;
+  return Math.max(1, Math.ceil(text.length / charsPerLine));
+}
+
+function estimateSummaryPanelHeight(summary) {
+  const lines = estimateLines(summary, 92);
+  return 86 + Math.max(0, lines - 2) * 24;
+}
+
+function estimateIntroHeight(data) {
+  const addressBand = 112;
+  const summaryCards = 126;
+  const weatherSummary = estimateSummaryPanelHeight(data.summary);
+  const stats = 104;
+  return addressBand + summaryCards + weatherSummary + stats + 3 * SECTION_GAP;
+}
+
+function estimateHailRowHeight(row) {
+  const lines = Math.max(
+    estimateLines(formatDate(row?.date), 10),
+    estimateLines(row?.size, 28),
+    estimateLines(row?.location, 25),
+    estimateLines(row?.propertyDamage, 12)
+  );
+  return 40 + lines * 18;
+}
+
+function estimateOtherRowHeight(row) {
+  const lines = Math.max(
+    estimateLines(formatDate(row?.date), 10),
+    estimateLines(row?.type, 22),
+    estimateLines(row?.description, 56),
+    estimateLines(row?.damage, 12)
+  );
+  return 42 + lines * 18;
+}
+
+function estimateSourcesBlockHeight(sources = []) {
+  const base = 74;
+  const rows = sources.reduce((sum, s) => {
+    const lines = estimateLines(s, 80);
+    return sum + 12 + lines * 16;
+  }, 0);
+  return base + rows + 16;
+}
+
+function buildFlowPages(data) {
+  if (!data) return [];
+
+  const pages = [];
+  const hailRows = [...data.hailEvents];
+  const otherRows = [...data.otherEvents];
+  const sources = [...data.sources];
+
+  function createPage({ showTopHeader = false, showIntro = false } = {}) {
+    const remaining =
+      (showIntro ? FIRST_PAGE_TOTAL_CAPACITY - estimateIntroHeight(data) : CONTINUATION_PAGE_CAPACITY);
+
+    return {
+      showTopHeader,
+      showIntro,
+      sections: [],
+      showFooter: false,
+      remaining,
+    };
+  }
+
+  function pushNewPage(opts = {}) {
+    const page = createPage(opts);
+    pages.push(page);
+    return page;
+  }
+
+  let currentPage = pushNewPage({ showTopHeader: true, showIntro: true });
+
+  function ensureRoom(requiredHeight) {
+    if (currentPage.remaining >= requiredHeight) return;
+
+    currentPage = pushNewPage({ showTopHeader: false, showIntro: false });
+  }
+
+  function addTableSections(type, rows, firstTitle, continuationTitle, rowEstimator) {
+    let firstChunk = true;
+
+    while (rows.length > 0) {
+      const title = firstChunk ? firstTitle : continuationTitle;
+      const nextRowHeight = rowEstimator(rows[0]);
+
+      ensureRoom(TABLE_BASE_HEIGHT + nextRowHeight);
+
+      let used = TABLE_BASE_HEIGHT;
+      const chunk = [];
+
+      while (rows.length > 0) {
+        const rowHeight = rowEstimator(rows[0]);
+        if (chunk.length > 0 && used + rowHeight > currentPage.remaining) break;
+
+        chunk.push(rows.shift());
+        used += rowHeight;
+
+        if (used > currentPage.remaining) break;
+      }
+
+      if (chunk.length === 0) {
+        chunk.push(rows.shift());
+        used += rowEstimator(chunk[0]);
+      }
+
+      currentPage.sections.push({
+        type,
+        title,
+        rows: chunk,
+      });
+
+      currentPage.remaining -= Math.max(used + SECTION_GAP, 0);
+      firstChunk = false;
+    }
+  }
+
+  addTableSections(
+    "hail",
+    hailRows,
+    "Hail Events - Past 5 Years",
+    "Hail Events - Continued",
+    estimateHailRowHeight
+  );
+
+  addTableSections(
+    "other",
+    otherRows,
+    "Other Severe Weather Events",
+    "Other Severe Weather Events - Continued",
+    estimateOtherRowHeight
+  );
+
+  const sourcesHeight = estimateSourcesBlockHeight(sources);
+  if (currentPage.remaining < sourcesHeight + FOOTER_RESERVE) {
+    currentPage = pushNewPage({ showTopHeader: false, showIntro: false });
+  }
+
+  currentPage.sections.push({
+    type: "sources",
+    title: "Data Sources",
+    sources,
+  });
+  currentPage.showFooter = true;
+
+  return pages;
 }
 
 function LogoMark({ large = false }) {
@@ -388,17 +565,6 @@ function LoginScreen({ username, password, setUsername, setPassword, onLogin, lo
   );
 }
 
-const loginInputStyle = {
-  width: "100%",
-  background: "#02060d",
-  color: theme.text,
-  border: `1px solid ${theme.border}`,
-  borderRadius: 10,
-  padding: "13px 14px",
-  fontSize: 14,
-  outline: "none",
-};
-
 function SectionLabel({ children }) {
   return (
     <div
@@ -565,7 +731,7 @@ function PdfPageShell({ children, showTopHeader = false }) {
 
 function AddressLookupBand({ address }) {
   return (
-    <Panel style={{ marginBottom: 18, paddingBottom: 16 }}>
+    <Panel style={{ marginBottom: SECTION_GAP, paddingBottom: 16 }}>
       <SectionLabel>Property Address Lookup</SectionLabel>
 
       <div
@@ -621,8 +787,8 @@ function SummaryCards({ data }) {
       style={{
         display: "grid",
         gridTemplateColumns: "1fr 1fr",
-        gap: 18,
-        marginBottom: 18,
+        gap: SECTION_GAP,
+        marginBottom: SECTION_GAP,
       }}
     >
       <Panel>
@@ -684,7 +850,7 @@ function SummaryCards({ data }) {
 
 function WeatherSummary({ text }) {
   return (
-    <Panel style={{ marginBottom: 18 }}>
+    <Panel style={{ marginBottom: SECTION_GAP }}>
       <SectionLabel>Weather Summary</SectionLabel>
       <div
         style={{
@@ -714,7 +880,7 @@ function StatsGrid({ stats }) {
         display: "grid",
         gridTemplateColumns: "repeat(4, 1fr)",
         gap: 12,
-        marginBottom: 20,
+        marginBottom: SECTION_GAP,
       }}
     >
       {items.map((item) => (
@@ -749,7 +915,7 @@ function StatsGrid({ stats }) {
   );
 }
 
-function TableShell({ title, children }) {
+function TableShell({ title, children, style = {} }) {
   return (
     <div
       style={{
@@ -757,7 +923,8 @@ function TableShell({ title, children }) {
         border: `1px solid ${theme.border}`,
         borderRadius: 12,
         overflow: "hidden",
-        marginBottom: 18,
+        marginBottom: SECTION_GAP,
+        ...style,
       }}
     >
       <div
@@ -799,20 +966,6 @@ function TableHeader({ columns }) {
     </div>
   );
 }
-
-const monoCellStyle = {
-  fontFamily: '"IBM Plex Mono", monospace',
-  color: theme.text,
-  whiteSpace: "pre-wrap",
-  wordBreak: "break-word",
-};
-
-const emptyRowStyle = {
-  padding: "18px",
-  color: theme.muted,
-  fontFamily: '"IBM Plex Mono", monospace',
-  fontSize: 13,
-};
 
 function HailEventsTable({ rows, title = "Hail Events - Past 5 Years" }) {
   const cols = [
@@ -956,95 +1109,56 @@ function TrinityFooter() {
   );
 }
 
-function ReportPageOne({ data, address, hailRows, firstOtherRows }) {
+function ReportIntro({ data, address }) {
   return (
-    <PdfPageShell showTopHeader>
+    <>
       <AddressLookupBand address={address} />
       <SummaryCards data={data} />
       <WeatherSummary text={data.summary} />
       <StatsGrid stats={data.stats} />
-      <HailEventsTable rows={hailRows} />
-      <OtherEventsTable rows={firstOtherRows} />
-    </PdfPageShell>
+    </>
   );
 }
 
-function ReportContinuationPage({ title, rows, type, showSources, sources, showFooter }) {
+function ReportPage({ page, data, address }) {
   return (
-    <PdfPageShell>
-      {type === "hail" ? (
-        <HailEventsTable rows={rows} title={title} />
-      ) : (
-        <OtherEventsTable rows={rows} title={title} />
-      )}
+    <PdfPageShell showTopHeader={page.showTopHeader}>
+      {page.showIntro ? <ReportIntro data={data} address={address} /> : null}
 
-      {showSources ? <SourcesBlock sources={sources} /> : null}
-      {showFooter ? <TrinityFooter /> : null}
+      {page.sections.map((section, idx) => {
+        if (section.type === "hail") {
+          return (
+            <HailEventsTable
+              key={`${section.type}-${idx}`}
+              rows={section.rows}
+              title={section.title}
+            />
+          );
+        }
+
+        if (section.type === "other") {
+          return (
+            <OtherEventsTable
+              key={`${section.type}-${idx}`}
+              rows={section.rows}
+              title={section.title}
+            />
+          );
+        }
+
+        if (section.type === "sources") {
+          return <SourcesBlock key={`${section.type}-${idx}`} sources={section.sources} />;
+        }
+
+        return null;
+      })}
+
+      {page.showFooter ? <TrinityFooter /> : null}
     </PdfPageShell>
   );
 }
 
-function ReportSourcesOnlyPage({ sources }) {
-  return (
-    <PdfPageShell>
-      <SourcesBlock sources={sources} />
-      <TrinityFooter />
-    </PdfPageShell>
-  );
-}
-
-function buildPageModel(data) {
-  if (!data) return [];
-
-  const hailPage1Count = 3;
-  const hailContinuationCount = 6;
-  const otherPage1Count = 1;
-  const otherContinuationCount = 3;
-
-  const hailPage1 = data.hailEvents.slice(0, hailPage1Count);
-  const hailOverflow = chunkArray(data.hailEvents.slice(hailPage1Count), hailContinuationCount);
-
-  const otherPage1 = data.otherEvents.slice(0, otherPage1Count);
-  const otherOverflow = chunkArray(data.otherEvents.slice(otherPage1Count), otherContinuationCount);
-
-  const pages = [
-    {
-      kind: "page1",
-      hailRows: hailPage1,
-      otherRows: otherPage1,
-    },
-  ];
-
-  hailOverflow.forEach((rows, index) => {
-    pages.push({
-      kind: "hailContinuation",
-      title: index === 0 ? "Hail Events - Continued" : `Hail Events - Continued (${index + 1})`,
-      rows,
-    });
-  });
-
-  if (otherOverflow.length > 0) {
-    otherOverflow.forEach((rows, index) => {
-      const isLast = index === otherOverflow.length - 1;
-      pages.push({
-        kind: "otherContinuation",
-        title:
-          index === 0
-            ? "Other Severe Weather Events"
-            : `Other Severe Weather Events - Continued (${index + 1})`,
-        rows,
-        showSources: isLast,
-        showFooter: isLast,
-      });
-    });
-  } else {
-    pages.push({ kind: "sourcesOnly" });
-  }
-
-  return pages;
-}
-
-function ReportPreview({ data, address, pageModels }) {
+function ReportPreview({ data, address, pages }) {
   return (
     <div>
       <div
@@ -1061,7 +1175,7 @@ function ReportPreview({ data, address, pageModels }) {
       </div>
 
       <div style={{ display: "grid", gap: 18 }}>
-        {pageModels.map((page, idx) => (
+        {pages.map((page, idx) => (
           <div
             key={`preview-${idx}`}
             style={{
@@ -1074,34 +1188,7 @@ function ReportPreview({ data, address, pageModels }) {
             }}
           >
             <div style={{ width: PAGE_W }}>
-              {page.kind === "page1" ? (
-                <ReportPageOne
-                  data={data}
-                  address={address}
-                  hailRows={page.hailRows}
-                  firstOtherRows={page.otherRows}
-                />
-              ) : page.kind === "hailContinuation" ? (
-                <ReportContinuationPage
-                  title={page.title}
-                  rows={page.rows}
-                  type="hail"
-                  showSources={false}
-                  showFooter={false}
-                  sources={[]}
-                />
-              ) : page.kind === "otherContinuation" ? (
-                <ReportContinuationPage
-                  title={page.title}
-                  rows={page.rows}
-                  type="other"
-                  showSources={page.showSources}
-                  showFooter={page.showFooter}
-                  sources={data.sources}
-                />
-              ) : (
-                <ReportSourcesOnlyPage sources={data.sources} />
-              )}
+              <ReportPage page={page} data={data} address={address} />
             </div>
           </div>
         ))}
@@ -1147,7 +1234,7 @@ export default function App() {
   }, []);
 
   const normalized = useMemo(() => normalizeResult(result, address), [result, address]);
-  const pageModels = useMemo(() => buildPageModel(normalized), [normalized]);
+  const pages = useMemo(() => buildFlowPages(normalized), [normalized]);
 
   async function handleLogin() {
     setAuthLoading(true);
@@ -1199,7 +1286,7 @@ export default function App() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         model: "claude-sonnet-4-6",
-        max_tokens: useTools ? 1800 : 2200,
+        max_tokens: useTools ? 1400 : 1800,
         system: systemPrompt,
         ...(useTools
           ? { tools: [{ type: "web_search_20250305", name: "web_search" }] }
@@ -1249,7 +1336,7 @@ Return only valid JSON in the exact schema.`,
 
       let data = null;
 
-      for (let i = 0; i < 5; i += 1) {
+      for (let i = 0; i < 2; i += 1) {
         data = await callAnthropic(messages, true);
 
         if (data?.stop_reason === "tool_use") {
@@ -1299,7 +1386,7 @@ Return only valid JSON in the exact schema.`,
   }
 
   async function downloadPDF() {
-    if (!normalized || pageModels.length === 0) return;
+    if (!normalized || pages.length === 0) return;
 
     setPdfLoading(true);
 
@@ -1315,7 +1402,7 @@ Return only valid JSON in the exact schema.`,
       const pdfW = pdf.internal.pageSize.getWidth();
       const pdfH = pdf.internal.pageSize.getHeight();
 
-      for (let i = 0; i < pageModels.length; i += 1) {
+      for (let i = 0; i < pages.length; i += 1) {
         const node = pageRefs.current[i];
         if (!node) continue;
 
@@ -1476,7 +1563,7 @@ Return only valid JSON in the exact schema.`,
             <ReportPreview
               data={normalized}
               address={address}
-              pageModels={pageModels}
+              pages={pages}
             />
           </>
         )}
@@ -1492,7 +1579,7 @@ Return only valid JSON in the exact schema.`,
         }}
       >
         {normalized &&
-          pageModels.map((page, idx) => (
+          pages.map((page, idx) => (
             <div
               key={`pdf-${idx}`}
               ref={(el) => {
@@ -1500,34 +1587,7 @@ Return only valid JSON in the exact schema.`,
               }}
               style={{ width: PAGE_W, height: PAGE_H, marginBottom: 20 }}
             >
-              {page.kind === "page1" ? (
-                <ReportPageOne
-                  data={normalized}
-                  address={address}
-                  hailRows={page.hailRows}
-                  firstOtherRows={page.otherRows}
-                />
-              ) : page.kind === "hailContinuation" ? (
-                <ReportContinuationPage
-                  title={page.title}
-                  rows={page.rows}
-                  type="hail"
-                  showSources={false}
-                  showFooter={false}
-                  sources={[]}
-                />
-              ) : page.kind === "otherContinuation" ? (
-                <ReportContinuationPage
-                  title={page.title}
-                  rows={page.rows}
-                  type="other"
-                  showSources={page.showSources}
-                  showFooter={page.showFooter}
-                  sources={normalized.sources}
-                />
-              ) : (
-                <ReportSourcesOnlyPage sources={normalized.sources} />
-              )}
+              <ReportPage page={page} data={normalized} address={address} />
             </div>
           ))}
       </div>
