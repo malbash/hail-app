@@ -358,7 +358,8 @@ function LogoMark({ large = false }) {
       alt="Trinity Engineering"
       style={{
         width: large ? 180 : 118,
-        height: large ? 86 : 54,
+        height: "auto",
+        maxHeight: large ? 86 : 54,
         objectFit: "contain",
         display: "block",
       }}
