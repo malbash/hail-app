@@ -1,4 +1,4 @@
-import crypto from "crypto";
+const crypto = require("crypto");
 
 function safeEqual(a = "", b = "") {
   const aBuf = Buffer.from(String(a));
@@ -18,26 +18,15 @@ function createToken(username, secret) {
   return Buffer.from(`${payload}:${sig}`).toString("base64url");
 }
 
-export default async function handler(req) {
+module.exports = async (req, res) => {
   if (req.method === "OPTIONS") {
-    return new Response(null, {
-      status: 204,
-      headers: {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "POST, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type",
-      },
-    });
+    res.status(204).end();
+    return;
   }
 
   if (req.method !== "POST") {
-    return new Response(
-      JSON.stringify({ success: false, error: "Method not allowed" }),
-      {
-        status: 405,
-        headers: { "Content-Type": "application/json" },
-      }
-    );
+    res.status(405).json({ success: false, error: "Method not allowed" });
+    return;
   }
 
   const APP_USERNAME = process.env.APP_USERNAME;
@@ -45,51 +34,34 @@ export default async function handler(req) {
   const APP_SESSION_SECRET = process.env.APP_SESSION_SECRET;
 
   if (!APP_USERNAME || !APP_PASSWORD || !APP_SESSION_SECRET) {
-    return new Response(
-      JSON.stringify({
-        success: false,
-        error: "Missing auth environment variables.",
-      }),
-      {
-        status: 500,
-        headers: { "Content-Type": "application/json" },
-      }
-    );
+    res.status(500).json({
+      success: false,
+      error: "Missing auth environment variables.",
+    });
+    return;
   }
 
   try {
-    const { username, password } = await req.json();
+    const { username, password } = req.body || {};
 
     if (!safeEqual(username, APP_USERNAME) || !safeEqual(password, APP_PASSWORD)) {
-      return new Response(
-        JSON.stringify({ success: false, error: "Invalid credentials." }),
-        {
-          status: 401,
-          headers: { "Content-Type": "application/json" },
-        }
-      );
+      res.status(401).json({ success: false, error: "Invalid credentials." });
+      return;
     }
 
     const token = createToken(username, APP_SESSION_SECRET);
     const isProd = process.env.NODE_ENV === "production";
 
-    return new Response(JSON.stringify({ success: true }), {
-      status: 200,
-      headers: {
-        "Content-Type": "application/json",
-        "Set-Cookie": `hail_auth=${token}; Path=/; HttpOnly; ${isProd ? "Secure;" : ""} SameSite=Lax; Max-Age=${60 * 60 * 24 * 14}`,
-      },
-    });
-  } catch (err) {
-    return new Response(
-      JSON.stringify({
-        success: false,
-        error: err.message || "Login failed.",
-      }),
-      {
-        status: 500,
-        headers: { "Content-Type": "application/json" },
-      }
+    res.setHeader(
+      "Set-Cookie",
+      `hail_auth=${token}; Path=/; HttpOnly; ${isProd ? "Secure;" : ""} SameSite=Lax; Max-Age=${60 * 60 * 24 * 14}`
     );
+
+    res.status(200).json({ success: true });
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      error: err.message || "Login failed.",
+    });
   }
-}
+};
